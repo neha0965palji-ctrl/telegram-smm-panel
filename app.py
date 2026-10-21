@@ -90,7 +90,7 @@ th,td{text-align:left;padding:9px;border-bottom:1px solid #49305f;overflow-wrap:
 <div class="layout"><aside>
 <a href="/dashboard">⌂ Dashboard</a>
 <a href="#new-order">✦ Telegram Services</a>
-<a href="#orders">▤ My Orders</a>
+<a href="#orders">📋 Order History</a>
 </aside><main>
 <h2>Welcome, Admin! 💜</h2>
 {% for message in messages %}<p>{{ message }}</p>{% endfor %}
