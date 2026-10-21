@@ -41,6 +41,15 @@ def init_db():
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        columns = {row["name"] for row in db.execute("PRAGMA table_info(orders)").fetchall()}
+        for name, definition in {
+            "quantity": "INTEGER NOT NULL DEFAULT 1",
+            "unit_price": "REAL NOT NULL DEFAULT 0",
+            "total_price": "REAL NOT NULL DEFAULT 0",
+            "payment_status": "TEXT NOT NULL DEFAULT 'Manual payment pending'",
+        }.items():
+            if name not in columns:
+                db.execute(f"ALTER TABLE orders ADD COLUMN {name} {definition}")
 
 init_db()
 
@@ -102,26 +111,45 @@ th,td{text-align:left;padding:9px;border-bottom:1px solid #49305f;overflow-wrap:
 <h3>Submit Telegram Promotion Request</h3>
 <form method="post" action="/create-order">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">
+<p class="small">Sample INR rates per 1,000 units. Update SERVICE_RATES in app.py before taking real orders.</p>
 <label>Service</label>
-<select name="service" required>
+<select id="service" name="service" required>
 <option value="">Choose a service</option>
-<option value="Group promotion">Group promotion</option>
-<option value="Permission-based invite campaign">Permission-based invite campaign</option>
-<option value="Telegram channel promotion">Telegram channel promotion</option>
+{% for service, rate in rates.items() %}
+<option value="{{ service }}">{{ service }} — ₹{{ '%.2f'|format(rate) }} per 1,000</option>
+{% endfor %}
 </select>
 <label>Public Telegram group/channel link</label>
 <input name="group_link" type="url" placeholder="https://t.me/yourgroup" required maxlength="300">
+<label>Quantity</label>
+<input id="quantity" name="quantity" type="number" min="1" max="1000000" step="1" value="1000" required>
 <label>Campaign details</label>
 <textarea name="details" rows="3" required maxlength="1000" placeholder="Describe the promotion request"></textarea>
+<p class="small">Estimated total: ₹<strong id="total-price">0.00</strong>. Payment is manual; no online payment is connected.</p>
 <button type="submit">Save Order</button>
-</form></div>
+</form>
+<script>
+const rates = {{ rates|tojson }};
+const serviceInput = document.getElementById('service');
+const quantityInput = document.getElementById('quantity');
+function updateTotal() {
+  const rate = Number(rates[serviceInput.value] || 0);
+  const qty = Math.max(0, Number(quantityInput.value || 0));
+  document.getElementById('total-price').textContent = (rate * qty / 1000).toFixed(2);
+}
+serviceInput.addEventListener('change', updateTotal);
+quantityInput.addEventListener('input', updateTotal);
+updateTotal();
+</script></div>
 
 <div class="card" id="orders"><h3>Order History</h3>
 {% if orders %}
-<table><tr><th>ID</th><th>Service</th><th>Link</th><th>Details</th><th>Status</th><th>Date</th></tr>
+<div style="overflow-x:auto"><table><tr><th>ID</th><th>Service</th><th>Link</th><th>Quantity</th><th>Rate/1000</th><th>Total</th><th>Payment</th><th>Details</th><th>Status</th><th>Date</th></tr>
 {% for order in orders %}
 <tr><td>{{ order['id'] }}</td><td>{{ order['service'] }}</td>
-<td>{{ order['group_link'] }}</td><td>{{ order['details'] }}</td>
+<td>{{ order['group_link'] }}</td><td>{{ order['quantity'] }}</td>
+<td>₹{{ '%.2f'|format(order['unit_price']) }}</td><td>₹{{ '%.2f'|format(order['total_price']) }}</td>
+<td>{{ order['payment_status'] }}</td><td>{{ order['details'] }}</td>
 <td>
 <form method="post" action="/update-order/{{ order['id'] }}">
 <input type="hidden" name="csrf_token" value="{{ csrf }}">
@@ -133,7 +161,7 @@ th,td{text-align:left;padding:9px;border-bottom:1px solid #49305f;overflow-wrap:
 </select>
 </form>
 </td>
-{% endfor %}</table>
+{% endfor %}</table></div>
 {% else %}<p>No orders yet.</p>{% endif %}
 </div>
 <form method="post" action="/logout">
@@ -181,7 +209,7 @@ def dashboard():
     with get_db() as db:
         orders = db.execute("SELECT * FROM orders ORDER BY id DESC").fetchall()
     messages = session.pop("messages", [])
-    return render_template_string(DASHBOARD, csrf=session["csrf_token"], orders=orders, messages=messages)
+    return render_template_string(DASHBOARD, csrf=session["csrf_token"], orders=orders, messages=messages, rates=SERVICE_RATES)
 
 @app.route("/create-order", methods=["POST"])
 @admin_required
@@ -190,16 +218,30 @@ def create_order():
     service = request.form.get("service", "")
     group_link = request.form.get("group_link", "").strip()
     details = request.form.get("details", "").strip()
-    allowed = {"Group promotion", "Permission-based invite campaign", "Telegram channel promotion"}
-    if (service not in allowed or
-        not group_link.startswith(("https://t.me/", "http://t.me/")) or
-        len(group_link) > 300 or not details or len(details) > 1000):
-        abort(400, "Please check the service, Telegram link and details.")
+    try:
+        quantity = int(request.form.get("quantity", ""))
+    except (TypeError, ValueError):
+        abort(400, "Quantity must be a whole number.")
+    if service not in SERVICE_RATES:
+        abort(400, "Please choose a valid service.")
+    if not group_link.startswith(("https://t.me/", "http://t.me/")) or len(group_link) > 300:
+        abort(400, "Please enter a valid Telegram link.")
+    if not details or len(details) > 1000:
+        abort(400, "Campaign details are required.")
+    if quantity < MIN_QUANTITY or quantity > MAX_QUANTITY:
+        abort(400, f"Quantity must be between {MIN_QUANTITY} and {MAX_QUANTITY}.")
+    unit_price = float(SERVICE_RATES[service])
+    total_price = round(unit_price * quantity / 1000, 2)
     with get_db() as db:
-        db.execute("INSERT INTO orders (service, group_link, details) VALUES (?, ?, ?)",
-                   (service, group_link, details))
-    session["messages"] = ["Order request saved successfully!"]
+        db.execute(
+            """INSERT INTO orders
+               (service, group_link, details, quantity, unit_price, total_price, payment_status)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (service, group_link, details, quantity, unit_price, total_price, "Manual payment pending")
+        )
+    session["messages"] = [f"Order saved. Estimated total: ₹{total_price:.2f}. Manual payment is pending."]
     return redirect(url_for("dashboard"))
+
 
 @app.route("/logout", methods=["POST"])
 @admin_required
@@ -230,3 +272,7 @@ def update_order(order_id):
 
     session["messages"] = ["Order status updated successfully!"]
     return redirect(url_for("dashboard"))
+
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")))
