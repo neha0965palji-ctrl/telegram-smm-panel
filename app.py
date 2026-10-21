@@ -198,5 +198,25 @@ def logout():
     session.clear()
     return redirect(url_for("login"))
 
-if __name__ == "__main__":
-    app.run(debug=False)
+
+    @app.route("/update-order/<int:order_id>", methods=["POST"])
+@admin_required
+def update_order(order_id):
+    check_csrf()
+    status = request.form.get("status", "")
+    allowed_statuses = {"Pending", "In Progress", "Completed", "Cancelled"}
+
+    if status not in allowed_statuses:
+        abort(400, "Invalid order status.")
+
+    with get_db() as db:
+        result = db.execute(
+            "UPDATE orders SET status = ? WHERE id = ?",
+            (status, order_id)
+        )
+
+        if result.rowcount == 0:
+            abort(404, "Order not found.")
+
+    session["messages"] = ["Order status updated successfully!"]
+    return redirect(url_for("dashboard"))
