@@ -15,6 +15,16 @@ ADMIN_USERNAME = os.environ.get("ADMIN_USERNAME")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD")
 DB_PATH = os.path.join(os.path.dirname(__file__), "orders.db")
 
+# SAMPLE rates in INR per 1,000 units. Change these to your actual rates
+# before accepting real orders; this panel does not deliver services automatically.
+SERVICE_RATES = {
+    "Telegram Promotion (Sample)": 10.00,
+    "Telegram Views (Sample)": 20.00,
+    "Telegram Members (Sample)": 50.00,
+}
+MIN_QUANTITY = 1
+MAX_QUANTITY = 1_000_000
+
 if not all([app.secret_key, ADMIN_USERNAME, ADMIN_PASSWORD]):
     raise RuntimeError("Admin settings missing. Set them in PowerShell.")
 
