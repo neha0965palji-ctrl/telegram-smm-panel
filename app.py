@@ -122,7 +122,17 @@ th,td{text-align:left;padding:9px;border-bottom:1px solid #49305f;overflow-wrap:
 {% for order in orders %}
 <tr><td>{{ order['id'] }}</td><td>{{ order['service'] }}</td>
 <td>{{ order['group_link'] }}</td><td>{{ order['details'] }}</td>
-<td>{{ order['status'] }}</td><td>{{ order['created_at'] }}</td></tr>
+<td>
+<form method="post" action="/update-order/{{ order['id'] }}">
+<input type="hidden" name="csrf_token" value="{{ csrf }}">
+<select name="status" onchange="this.form.submit()">
+<option value="Pending" {% if order['status'] == 'Pending' %}selected{% endif %}>Pending</option>
+<option value="In Progress" {% if order['status'] == 'In Progress' %}selected{% endif %}>In Progress</option>
+<option value="Completed" {% if order['status'] == 'Completed' %}selected{% endif %}>Completed</option>
+<option value="Cancelled" {% if order['status'] == 'Cancelled' %}selected{% endif %}>Cancelled</option>
+</select>
+</form>
+</td>
 {% endfor %}</table>
 {% else %}<p>No orders yet.</p>{% endif %}
 </div>
