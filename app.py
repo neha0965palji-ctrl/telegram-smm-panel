@@ -199,7 +199,7 @@ def logout():
     return redirect(url_for("login"))
 
 
-    @app.route("/update-order/<int:order_id>", methods=["POST"])
+@app.route("/update-order/<int:order_id>", methods=["POST"])
 @admin_required
 def update_order(order_id):
     check_csrf()
